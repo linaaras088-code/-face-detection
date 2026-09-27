@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#111827">
+<title>AI Face Detection</title>
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:linear-gradient(135deg,#111827,#312e81);color:white;min-height:100vh}
+.container{max-width:900px;margin:auto;padding:24px}
+.card{background:rgba(255,255,255,.1);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.15);border-radius:24px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+h1{text-align:center;margin:5px 0 8px;font-size:32px}
+.subtitle{text-align:center;color:#d1d5db;margin-bottom:20px}
+.stage{position:relative;width:100%;aspect-ratio:16/10;background:#050505;border-radius:18px;overflow:hidden}
+video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+canvas{pointer-events:none}
+.controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:18px}
+button{border:0;border-radius:12px;padding:13px 20px;font-size:16px;font-weight:bold;cursor:pointer}
+#start{background:#22c55e;color:#06210e}#stop{background:#ef4444;color:white}
+.status{text-align:center;margin-top:15px;color:#e5e7eb}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:18px}
+.stat{background:rgba(0,0,0,.22);padding:15px;border-radius:15px;text-align:center}
+.num{display:block;font-size:28px;font-weight:bold;margin-top:5px}
+.note{font-size:13px;color:#cbd5e1;text-align:center;margin-top:18px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>🕵🏻‍♀️ AI Face Detection</h1>
+    <div class="subtitle">Real-time face detection using your camera</div>
+
+    <div class="stage">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="canvas"></canvas>
+    </div>
+
+    <div class="controls">
+      <button id="start">📷 Start Camera</button>
+      <button id="stop">⛔ Stop Camera</button>
+    </div>
+
+    <div id="status" class="status">Press “Start Camera” and allow camera access.</div>
+
+    <div class="stats">
+      <div class="stat">Faces detected<span id="faces" class="num">0</span></div>
+      <div class="stat">Confidence<span id="confidence" class="num">0%</span></div>
+    </div>
+
+    <div class="note">
+      For iPhone, open this project through an HTTPS website such as GitHub Pages.
+      Camera permission is required.
+    </div>
+  </div>
+</div>
+
+<script>
+const video=document.getElementById('video');
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+const statusEl=document.getElementById('status');
+const facesEl=document.getElementById('faces');
+const confEl=document.getElementById('confidence');
+let stream=null, running=false;
+
+const humanConfig={
+  backend:'webgl',
+  modelBasePath:'https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/models/',
+  face:{enabled:true,detector:{rotation:true,maxDetected:20},mesh:{enabled:false},iris:{enabled:false},attention:{enabled:false},emotion:{enabled:false},description:{enabled:false}},
+  body:{enabled:false},hand:{enabled:false},object:{enabled:false},segmentation:{enabled:false}
+};
+const human=new Human.Human(humanConfig);
+
+async function startCamera(){
+  try{
+    if(location.protocol!=='https:' && location.hostname!=='localhost'){
+      statusEl.textContent='⚠️ Camera needs HTTPS. Upload this folder to GitHub Pages first.';
+      return;
+    }
+    statusEl.textContent='Loading AI models...';
+    await human.load();
+    await human.warmup();
+
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},
+      audio:false
+    });
+    video.srcObject=stream;
+    await video.play();
+    running=true;
+    statusEl.textContent='✅ Camera is running — look at the camera.';
+    detectLoop();
+  }catch(err){
+    console.error(err);
+    statusEl.textContent='❌ Camera could not start. Check HTTPS and camera permission.';
+  }
+}
+
+function stopCamera(){
+  running=false;
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+  video.srcObject=null;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  facesEl.textContent='0'; confEl.textContent='0%';
+  statusEl.textContent='Camera stopped.';
+}
+
+async function detectLoop(){
+  if(!running) return;
+  if(video.readyState>=2){
+    const result=await human.detect(video);
+    draw(result.face||[]);
+  }
+  requestAnimationFrame(detectLoop);
+}
+
+function draw(faces){
+  canvas.width=video.videoWidth||640;
+  canvas.height=video.videoHeight||480;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  let total=0;
+  faces.forEach((f,i)=>{
+    const b=f.box;
+    if(!b) return;
+    const x=b[0], y=b[1], w=b[2], h=b[3];
+    const score=Math.round((f.score||0)*100);
+    total+=score;
+    ctx.strokeStyle='#22c55e';
+    ctx.lineWidth=Math.max(3,canvas.width/300);
+    ctx.strokeRect(x,y,w,h);
+    ctx.fillStyle='#22c55e';
+    ctx.font='bold 18px Arial';
+    ctx.fillText('Face '+(i+1)+'  '+score+'%',x,Math.max(22,y-8));
+  });
+
+  facesEl.textContent=faces.length;
+  confEl.textContent=faces.length?Math.round(total/faces.length)+'%':'0%';
+}
+document.getElementById('start').onclick=startCamera;
+document.getElementById('stop').onclick=stopCamera;
+</script>
+</body>
+</html>
